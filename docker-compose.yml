@@ -28,8 +28,14 @@ services:
   api:
     build: .
     container_name: house_edge_api
+    user: "1001:1001"
+    read_only: true
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100M
     environment:
       DATABASE_URL: postgresql://house_edge:${DB_PASSWORD:-change_me_in_production}@postgres:5432/house_edge
       TWITTER_BEARER_TOKEN: ${TWITTER_BEARER_TOKEN}
@@ -37,6 +43,7 @@ services:
       DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL}
       USE_REDIS: ${USE_REDIS:-true}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      PYTHONDONTWRITEBYTECODE: "1"
     ports:
       - "8000:8000"
     depends_on:
@@ -59,13 +66,20 @@ services:
     build: .
     container_name: house_edge_engine
     command: python start_autonomous_engine.py
+    user: "1001:1001"
+    read_only: true
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100M
     environment:
       DATABASE_URL: postgresql://house_edge:${DB_PASSWORD:-change_me_in_production}@postgres:5432/house_edge
       TWITTER_BEARER_TOKEN: ${TWITTER_BEARER_TOKEN}
       ODDS_API_KEY: ${ODDS_API_KEY}
       DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL}
+      PYTHONDONTWRITEBYTECODE: "1"
     depends_on:
       postgres:
         condition: service_healthy
@@ -80,12 +94,19 @@ services:
     build: .
     container_name: house_edge_dashboard
     command: streamlit run dashboard/app.py --server.port=8501
+    user: "1001:1001"
+    read_only: true
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100M
     environment:
       DATABASE_URL: postgresql://house_edge:${DB_PASSWORD:-change_me_in_production}@postgres:5432/house_edge
       API_BASE_URL: http://api:8000
       DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL}
+      PYTHONDONTWRITEBYTECODE: "1"
     ports:
       - "8501:8501"
     depends_on:

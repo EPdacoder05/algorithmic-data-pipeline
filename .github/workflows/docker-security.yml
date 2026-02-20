@@ -1,0 +1,26 @@
+name: Docker Security Scan
+
+on: [push, pull_request]
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t sportsbook-agg:test .
+
+      - name: Run Trivy scan
+        uses: aquasecurity/trivy-action@0.30.0
+        with:
+          image-ref: sportsbook-agg:test
+          severity: HIGH,CRITICAL
+          exit-code: 1
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0.22.2
+        with:
+          image: sportsbook-agg:test
