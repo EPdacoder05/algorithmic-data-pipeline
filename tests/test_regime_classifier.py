@@ -52,9 +52,9 @@ def test_guardrail_high_possessions_no_strong_under():
         )
     )
 
-    assert decision.action in {"BET_UNDER", "PASS"}
+    assert decision.action == "BET_UNDER"
     assert decision.meta.tier != "STRONG"
-    assert "high_possessions_no_strong_under" in decision.meta.guardrails or decision.meta.tier == "PASS"
+    assert "high_possessions_no_strong_under" in decision.meta.guardrails
 
 
 def test_guardrail_reachable_over_rate_clamps_under_confidence():
@@ -76,8 +76,8 @@ def test_guardrail_reachable_over_rate_clamps_under_confidence():
 
     assert decision.meta.over_required_rate >= 4.8
     assert decision.meta.over_required_rate <= 5.8
-    assert decision.meta.tier in {"LEAN", "PASS"}
-    assert "reachable_over_rate_clamp" in decision.meta.guardrails or decision.meta.tier == "PASS"
+    assert decision.meta.tier == "LEAN"
+    assert "reachable_over_rate_clamp" in decision.meta.guardrails
 
 
 def test_burst_persistence_blocks_fresh_under_entries():
