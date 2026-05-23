@@ -75,6 +75,15 @@ Output
 | `no_bet_detector.py` | Coin-flip filter. Identifies games with zero edge via weighted scoring. Primary signal gate overrides. |
 | `autonomous_engine.py` | Original autonomous engine for whale tracking and fade detection. |
 
+### Universal Live Totals Template (All Quarters)
+
+The live totals classifier now uses one quarter-agnostic but state-aware template:
+
+- **Regime gate:** `RUNWAY`, `NEUTRAL`, `COMPRESSION` from time, possessions, margin, and pace context.
+- **Universal decision score:** `total_decision_score = base_edge + compression_score - chaos_score + runway_over_pressure`.
+- **Guardrails:** no STRONG under with high possessions left, under confidence clamp in reachable over-rate bands, and burst-persistence under blocks.
+- **Output policy:** action is always normalized to `BET_OVER`, `BET_UNDER`, or `PASS`; confidence/tier metadata is emitted separately.
+
 ### ML/AI Layer (`engine/ml/`)
 
 | Module | Purpose |
@@ -390,6 +399,8 @@ The `engine/boost_ev.py` module evaluates DraftKings profit boosts:
 │   ├── clv_tracker.py         # Closing Line Value tracker
 │   ├── line_freeze_detector.py# Book trap detection
 │   ├── line_tracker.py        # NEW - Opening line tracking
+│   ├── regime.py              # Universal RUNWAY/NEUTRAL/COMPRESSION gate
+│   ├── live_totals_classifier.py # All-quarter regime-aware totals classifier
 │   ├── boost_ev.py            # Profit boost EV calculator
 │   ├── betting_engine.py      # Unified orchestrator (wires everything)
 │   ├── no_bet_detector.py     # Coin-flip filter
@@ -423,6 +434,7 @@ The `engine/boost_ev.py` module evaluates DraftKings profit boosts:
 │   ├── test_feature_engineering.py # NEW - Feature transform tests
 │   ├── test_online_trainer.py # NEW - Online learning tests
 │   ├── test_cli.py            # NEW - CLI smoke tests
+│   ├── test_regime_classifier.py # Universal live totals regime tests
 │   └── ...
 ├── scrapers/                  # Data scrapers
 ├── database/                  # DB models
