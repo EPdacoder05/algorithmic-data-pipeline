@@ -11,7 +11,7 @@ Tiers:
 """
 
 from dataclasses import dataclass
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 from analysis.rlm_detector import RLMSignal
 
 
@@ -30,6 +30,27 @@ class ConfidenceScore:
             "signals": self.signals,
             "signal_count": self.signal_count,
         }
+
+
+@dataclass
+class UnderConfidenceContext:
+    """Context for live-total under confidence guardrails."""
+
+    regime: str
+    possessions_remaining: float
+    over_required_rate: float
+    burst_persistence_active: bool
+    reachable_over_rate_band: Tuple[float, float]
+    high_possessions_threshold: float
+
+
+@dataclass
+class AdjustedConfidence:
+    """Result of applying under-specific confidence guardrails."""
+
+    confidence: float
+    tier: str
+    reasons: List[str]
 
 
 class ConfidenceScorer:
@@ -184,4 +205,42 @@ class ConfidenceScorer:
             tier=tier,
             signals=signal_types,
             signal_count=len(all_signals)
+        )
+
+    def adjust_under_confidence(
+        self,
+        confidence: float,
+        tier: str,
+        context: UnderConfidenceContext,
+    ) -> AdjustedConfidence:
+        """Clamp under confidence based on runway and hard guardrails."""
+        adjusted_confidence = confidence
+        adjusted_tier = tier
+        reasons: List[str] = []
+
+        if context.regime == "RUNWAY" and adjusted_tier in {"MEDIUM", "STRONG", "TIER_1", "TIER_2"}:
+            adjusted_confidence = min(adjusted_confidence, self.lean_threshold + 0.01)
+            adjusted_tier = "LEAN"
+            reasons.append("runway_caps_under_confidence")
+
+        if context.possessions_remaining >= context.high_possessions_threshold and adjusted_tier == "STRONG":
+            adjusted_confidence = min(adjusted_confidence, self.lean_threshold + 0.01)
+            adjusted_tier = "LEAN"
+            reasons.append("high_possessions_no_strong_under")
+
+        lo, hi = context.reachable_over_rate_band
+        if lo <= context.over_required_rate <= hi and adjusted_tier in {"MEDIUM", "STRONG", "TIER_1", "TIER_2"}:
+            adjusted_confidence = min(adjusted_confidence, self.lean_threshold + 0.01)
+            adjusted_tier = "LEAN"
+            reasons.append("reachable_over_rate_clamp")
+
+        if context.burst_persistence_active:
+            adjusted_confidence = min(adjusted_confidence, max(0.0, self.lean_threshold - 0.01))
+            adjusted_tier = "PASS"
+            reasons.append("burst_persistence_blocks_under")
+
+        return AdjustedConfidence(
+            confidence=adjusted_confidence,
+            tier=adjusted_tier,
+            reasons=reasons,
         )

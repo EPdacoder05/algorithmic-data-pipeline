@@ -75,6 +75,15 @@ Output
 | `no_bet_detector.py` | Coin-flip filter. Identifies games with zero edge via weighted scoring. Primary signal gate overrides. |
 | `autonomous_engine.py` | Original autonomous engine for whale tracking and fade detection. |
 
+### Universal Live Totals Template (All Quarters)
+
+The live totals classifier now uses one quarter-agnostic but state-aware template:
+
+- **Regime gate:** `RUNWAY`, `NEUTRAL`, `COMPRESSION` from time, possessions, margin, and pace context.
+- **Universal decision score:** `total_decision_score = base_edge + compression_score - chaos_score + runway_over_pressure`.
+- **Guardrails:** no STRONG under with high possessions left, under confidence clamp in reachable over-rate bands, and burst-persistence under blocks.
+- **Output policy:** action is always normalized to `BET_OVER`, `BET_UNDER`, or `PASS`; confidence/tier metadata is emitted separately.
+
 ### ML/AI Layer (`engine/ml/`)
 
 | Module | Purpose |
@@ -375,12 +384,23 @@ The `engine/boost_ev.py` module evaluates DraftKings profit boosts:
 │   ├── confidence.py          # Multi-signal confidence scoring
 │   ├── data_loader.py         # Unified data loading
 │   └── pick_generator.py      # Pick generation pipeline
+├── src/                       # NEW - Chat pipeline package
+│   ├── __init__.py
+│   ├── config.py              # Pipeline settings (pydantic-settings)
+│   ├── io_schemas.py          # Pydantic data contracts
+│   ├── token_tracker.py       # Token logging + JSONL persistence
+│   ├── session_summarizer.py  # Rule-based session summarizer
+│   ├── feature_engineering.py # Feature transforms for online model
+│   ├── online_trainer.py      # SGDClassifier partial_fit loop
+│   └── cli.py                 # Click CLI entry-points
 ├── engine/                    # Core analysis modules
 │   ├── signals.py             # Signal classification (PRIMARY vs CONFIRMATION)
 │   ├── confidence_decay.py    # Time/market decay engine
 │   ├── clv_tracker.py         # Closing Line Value tracker
 │   ├── line_freeze_detector.py# Book trap detection
 │   ├── line_tracker.py        # NEW - Opening line tracking
+│   ├── regime.py              # Universal RUNWAY/NEUTRAL/COMPRESSION gate
+│   ├── live_totals_classifier.py # All-quarter regime-aware totals classifier
 │   ├── boost_ev.py            # Profit boost EV calculator
 │   ├── betting_engine.py      # Unified orchestrator (wires everything)
 │   ├── no_bet_detector.py     # Coin-flip filter
@@ -406,14 +426,22 @@ The `engine/boost_ev.py` module evaluates DraftKings profit boosts:
 │   ├── discord_notifier.py    # NEW - Rich Discord embeds
 │   └── ...
 ├── tests/                     # Test suite
-│   ├── test_rlm_detector.py   # NEW - RLM detection tests
-│   ├── test_confidence.py     # NEW - Confidence scoring tests
+│   ├── test_rlm_detector.py   # RLM detection tests
+│   ├── test_confidence.py     # Confidence scoring tests
+│   ├── test_io_schemas.py     # NEW - Data contract tests
+│   ├── test_token_tracker.py  # NEW - Token tracking tests
+│   ├── test_session_summarizer.py # NEW - Summarizer tests
+│   ├── test_feature_engineering.py # NEW - Feature transform tests
+│   ├── test_online_trainer.py # NEW - Online learning tests
+│   ├── test_cli.py            # NEW - CLI smoke tests
+│   ├── test_regime_classifier.py # Universal live totals regime tests
 │   └── ...
 ├── scrapers/                  # Data scrapers
 ├── database/                  # DB models
 ├── api/                       # FastAPI backend
 ├── dashboard/                 # Streamlit dashboard
 ├── data/                      # Runtime data (gitignored)
+│   └── bootstrap_sessions/    # Seed training data JSONL files
 ├── logs/                      # Logs (gitignored)
 ├── .env                       # API keys (gitignored)
 ├── .env.example               # Template for .env
@@ -480,7 +508,17 @@ Game Data → FeatureEngine (32-dim vector)
 - Model drift monitoring (Page-Hinkley + PSI)
 - Closed-loop learning: predict → result → retrain
 
-### Phase 4: Daemon Microservice (NEXT)
+### Phase 4: Token + Chat-Summary + Online-Learning Pipeline ✅ SHIPPED
+- Token-size logger with rolling stats, cost estimates, and JSONL persistence (`src/token_tracker.py`)
+- Rule-based session summarizer (decision points, state snapshots, sentiment) (`src/session_summarizer.py`)
+- Feature engineering pipeline: required-rate, one-hot leagues/markets, volatility proxies (`src/feature_engineering.py`)
+- Online SGDClassifier with `partial_fit`, 3-class output (BET_OVER / BET_UNDER / PASS), confidence gating, and model versioning (`src/online_trainer.py`)
+- Pydantic v2 data contracts: `TokenEvent`, `SessionSummary`, `TrainingExample`, `ModelMetrics` (`src/io_schemas.py`)
+- CLI: `ingest-events`, `summarize-session`, `build-training-set`, `train-online`, `evaluate` (`src/cli.py`)
+- Bootstrap seed data from real WNBA Q2 chat session (`data/bootstrap_sessions/bootstrap_session_001.jsonl`)
+- 117-test suite covering all new modules
+
+### Phase 5: Daemon Microservice (NEXT)
 - [ ] Dockerized headless daemon (no human interaction needed)
 - [ ] Health check endpoints (/health/live, /health/ready, /health/metrics)
 - [ ] Prometheus metrics export (pick accuracy, model drift, API credits)
@@ -501,7 +539,117 @@ Game Data → FeatureEngine (32-dim vector)
 
 ---
 
-## Environment Variables
+## Chat-Pipeline: Token + Summary + Online Learning
+
+### Architecture
+
+```
+Raw chat JSONL
+      │
+      ▼
+TokenTracker (src/token_tracker.py)
+  ├── Count tokens per message (simple ~4 chars/token or tiktoken)
+  ├── Compute rolling session stats and cost estimates
+  ├── Enforce guardrails (MAX_MESSAGE_TOKENS, MAX_SESSION_TOKENS)
+  └── Flush to data/token_events/<session_id>.jsonl
+      │
+      ▼
+SessionSummarizer (src/session_summarizer.py)
+  ├── Infer league & market type from context fields
+  ├── Extract decision points (PASS / BET_OVER / BET_UNDER, required rate, time left)
+  ├── Detect outcome signals (win / loss / push from metadata)
+  └── Classify user feedback sentiment (strong_negative → strong_positive)
+      │
+      ▼
+FeatureEngineer (src/feature_engineering.py)
+  ├── required_rate, time_left_norm, line_norm
+  ├── log-scaled token counts & cost
+  ├── Sentiment score (-2 → +2)
+  ├── One-hot: league (NBA/WNBA/NCAAB/EURO/OTHER)
+  └── One-hot: market type (Q1/Q2/Q3/Q4/game/OTHER)
+      │
+      ▼
+OnlineTrainer (src/online_trainer.py)
+  ├── SGDClassifier (loss="log_loss", partial_fit)
+  ├── 3-class output: BET_OVER / BET_UNDER / PASS
+  ├── Confidence gate → PASS when prob < threshold
+  ├── Model versioned & persisted with joblib
+  └── Segment-level metrics (league × market type)
+```
+
+### Quickstart
+
+```bash
+# 1. Ingest raw chat session
+python -m src.cli ingest-events \
+    --input data/bootstrap_sessions/bootstrap_session_001.jsonl \
+    --session-id sess_bootstrap_001 \
+    --market-context "WNBA Q2 total 38.5"
+
+# 2. Summarise session
+python -m src.cli summarize-session \
+    --session-id sess_bootstrap_001 \
+    --league WNBA \
+    --market-type Q2_total
+
+# 3. Build training set from all summaries
+python -m src.cli build-training-set
+
+# 4. Train online model (partial_fit)
+python -m src.cli train-online --batch-size 16
+
+# 5. Evaluate current model
+python -m src.cli evaluate
+```
+
+### Configuration
+
+All settings can be overridden via environment variables (prefix `PIPELINE_`):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PIPELINE_MAX_SESSION_TOKENS` | 16000 | Alert threshold for session token count |
+| `PIPELINE_MAX_MESSAGE_TOKENS` | 4096 | Alert threshold for single message |
+| `PIPELINE_CONFIDENCE_THRESHOLD` | 0.55 | Minimum probability for non-PASS action |
+| `PIPELINE_LEARNING_RATE` | 0.01 | SGD learning rate |
+| `PIPELINE_TOKENIZER_BACKEND` | `simple` | `simple` (heuristic) or `tiktoken` |
+| `PIPELINE_COST_PER_1K_PROMPT` | 0.001 | USD per 1 000 prompt tokens |
+| `PIPELINE_COST_PER_1K_COMPLETION` | 0.002 | USD per 1 000 completion tokens |
+| `PIPELINE_EVENTS_DIR` | `data/token_events` | Token event JSONL directory |
+| `PIPELINE_SUMMARIES_DIR` | `data/session_summaries` | Summary JSONL directory |
+| `PIPELINE_TRAINING_DIR` | `data/training_sets` | Training JSONL directory |
+| `PIPELINE_MODEL_DIR` | `data/models` | Model persistence directory |
+
+### Data Contracts
+
+| Schema | Description |
+|--------|-------------|
+| `TokenEvent` | One row per chat message: token counts, cost, rolling stats, market context |
+| `SessionSummary` | Structured summary: decision points, outcome, sentiment, league/market |
+| `TrainingExample` | Flat feature vector + label ready for partial_fit |
+| `ModelMetrics` | Model version, rolling accuracy, per-segment stats |
+
+### New Modules
+
+| Module | Purpose |
+|--------|---------|
+| `src/config.py` | Pipeline configuration (pydantic-settings, env-var overrides) |
+| `src/io_schemas.py` | Pydantic v2 data contracts + validation helpers |
+| `src/token_tracker.py` | Token logging, rolling stats, JSONL persistence |
+| `src/session_summarizer.py` | Rule-based session summarizer (no LLM required) |
+| `src/feature_engineering.py` | Feature transforms for online model |
+| `src/online_trainer.py` | SGDClassifier with partial_fit, 3-class output |
+| `src/cli.py` | Click CLI: ingest → summarize → build → train → evaluate |
+
+### Limitations & Future Enhancements
+
+- **Token counting:** The default `simple` backend (~4 chars/token) is an approximation. For exact counts, set `PIPELINE_TOKENIZER_BACKEND=tiktoken` and install `tiktoken`.
+- **Seed data:** The bootstrap session (`sess_bootstrap_001`) covers one WNBA Q2 spot. Collect more diverse sessions for robust model convergence.
+- **Feature engineering:** Currently uses simple scalar features. Future work: line-movement delta, foul-rate proxy, pace-per-minute from live feed.
+- **Calibration:** SGDClassifier probabilities are approximate. For production use, wrap with `CalibratedClassifierCV` after accumulating ≥50 labelled examples.
+- **Multi-session batching:** The current CLI processes one session at a time; future `ingest-events --batch` flag could handle entire directories.
+
+---
 
 Copy `.env.example` to `.env` and fill in:
 
