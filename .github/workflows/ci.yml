@@ -72,7 +72,7 @@ jobs:
           safety check --full-report 2>&1 || true
 
   codeql:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork != true
     runs-on: ubuntu-latest
     permissions:
       actions: read
