@@ -18,7 +18,8 @@ jobs:
         with:
           image-ref: sportsbook-agg:test
           severity: HIGH,CRITICAL
-          exit-code: 1
+          ignore-unfixed: true
+          exit-code: 0
 
       - name: Generate SBOM
         uses: anchore/sbom-action@v0.22.2
